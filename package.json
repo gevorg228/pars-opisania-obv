@@ -1,0 +1,13 @@
+{
+  "name": "parser-back-root",
+  "private": true,
+  "scripts": {
+    "start:parser": "npm --prefix parser start",
+    "start:rasparser": "npm --prefix rasparser start",
+    "start": "concurrently \"npm --prefix parser start\" \"npm --prefix rasparser start\"",
+    "start:all": "concurrently \"docker compose up\" \"npm start\""
+  },
+  "devDependencies": {
+    "concurrently": "8.2.2"
+  }
+}

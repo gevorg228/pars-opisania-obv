@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: avito_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_password
+      POSTGRES_DB: avito_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - avito_pgdata:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer:4
+    container_name: avito_adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+
+  # n8n:
+  #   image: n8nio/n8n:latest
+  #   container_name: avito_n8n
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5678:5678"
+  #   environment:
+  #     - N8N_HOST=localhost
+  #     - N8N_PORT=5678
+  #     - N8N_PROTOCOL=http
+  #     - WEBHOOK_URL=http://localhost:5678/
+  #     - GENERIC_TIMEZONE=Europe/Moscow
+  #   depends_on:
+  #     - postgres
+
+volumes:
+  avito_pgdata:

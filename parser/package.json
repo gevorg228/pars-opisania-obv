@@ -1,0 +1,25 @@
+{
+  "name": "avito-demo-pu",
+  "version": "1.0.0",
+  "description": "Парсинг веб-страниц с Puppeteer и обходом детекции ботов",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "puppeteer",
+    "scraping",
+    "stealth",
+    "parser"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "puppeteer": "^24.29.1",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
+
+

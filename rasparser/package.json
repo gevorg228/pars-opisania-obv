@@ -1,0 +1,15 @@
+{
+  "name": "back-parser",
+  "version": "1.0.0",
+  "description": "Fetch latest search_results, parse listing + detail pages, write to Postgres",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "dotenv": "16.4.5",
+    "node-fetch": "2.7.0",
+    "pg": "8.12.0"
+  }
+}
