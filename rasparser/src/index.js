@@ -134,6 +134,7 @@ async function run() {
   const stopAfterListing = process.env.STOP_AFTER_LISTING === "1";
   const detailDelay = Number(process.env.DETAIL_DELAY_MS || 0);
   const batchSize = Number(process.env.BATCH_SIZE || 10);
+  const batchDelay = Number(process.env.BATCH_DELAY_MS || 1000);
 
   const client = createDbClient();
   await client.connect();
@@ -225,6 +226,10 @@ async function run() {
           if (detailDelay > 0) {
             await sleep(detailDelay);
           }
+        }
+
+        if (batchDelay > 0 && b < batches.length - 1) {
+          await sleep(batchDelay);
         }
       }
     }

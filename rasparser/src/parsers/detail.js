@@ -8,7 +8,8 @@ const {
   getMeta,
   getMarkerInnerHtml,
   htmlToTextKeepLines,
-  getMarkerText
+  getMarkerText,
+  parseRuDateTime
 } = require("../utils");
 
 function parseDetailHtml(html, base) {
@@ -122,7 +123,11 @@ function parseDetailHtml(html, base) {
 
   setIfEmpty(merged, "views_total", toInt(getMarkerText(html, "item-view/total-views")));
   setIfEmpty(merged, "views_today", toInt(getMarkerText(html, "item-view/today-views")));
-  setIfEmpty(merged, "published_at", getMarkerText(html, "item-view/item-date"));
+  const publishedRaw = getMarkerText(html, "item-view/item-date");
+  const publishedParsed = parseRuDateTime(publishedRaw);
+  if (publishedParsed) {
+    setIfEmpty(merged, "published_at", publishedParsed);
+  }
 
   const descInner =
     getMarkerInnerHtml(html, "item-view/item-description") ||

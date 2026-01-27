@@ -109,6 +109,104 @@ function getMarkerText(html, marker) {
   return htmlToTextKeepLines(inner);
 }
 
+function parseRuDateTime(input, now = new Date()) {
+  if (!input) return null;
+  let s = String(input)
+    .replace(/[•·]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!s) return null;
+
+  const timeMatch = s.match(/(\d{1,2}):(\d{2})/);
+  const hour = timeMatch ? Number(timeMatch[1]) : 0;
+  const minute = timeMatch ? Number(timeMatch[2]) : 0;
+
+  if (s.includes("сегодня")) {
+    const d = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      hour,
+      minute,
+      0,
+      0
+    );
+    return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  }
+
+  if (s.includes("вчера")) {
+    const d = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 1,
+      hour,
+      minute,
+      0,
+      0
+    );
+    return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  }
+
+  const months = {
+    "января": 0,
+    "янв": 0,
+    "февраля": 1,
+    "фев": 1,
+    "марта": 2,
+    "мар": 2,
+    "апреля": 3,
+    "апр": 3,
+    "мая": 4,
+    "май": 4,
+    "июня": 5,
+    "июн": 5,
+    "июля": 6,
+    "июл": 6,
+    "августа": 7,
+    "авг": 7,
+    "сентября": 8,
+    "сен": 8,
+    "сент": 8,
+    "октября": 9,
+    "окт": 9,
+    "ноября": 10,
+    "ноя": 10,
+    "декабря": 11,
+    "дек": 11
+  };
+
+  const dateMatch = s.match(/(\d{1,2})\s+([а-яё]+)/i);
+  if (!dateMatch) return null;
+  const day = Number(dateMatch[1]);
+  const monthName = dateMatch[2];
+  const monthKey = Object.keys(months).find(key => monthName.startsWith(key));
+  if (!monthKey) return null;
+  const month = months[monthKey];
+
+  const yearMatch = s.match(/(\d{4})\s*г?\.?/);
+  let year = yearMatch ? Number(yearMatch[1]) : now.getFullYear();
+
+  let candidate = new Date(year, month, day, hour, minute, 0, 0);
+  if (!yearMatch) {
+    const tomorrow = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      0,
+      0,
+      0,
+      0
+    );
+    if (candidate > tomorrow) {
+      year -= 1;
+      candidate = new Date(year, month, day, hour, minute, 0, 0);
+    }
+  }
+
+  return Number.isFinite(candidate.getTime()) ? candidate.toISOString() : null;
+}
+
 module.exports = {
   decodeHtml,
   stripTags,
@@ -122,5 +220,6 @@ module.exports = {
   getMeta,
   getMarkerInnerHtml,
   htmlToTextKeepLines,
-  getMarkerText
+  getMarkerText,
+  parseRuDateTime
 };

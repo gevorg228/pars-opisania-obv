@@ -8,7 +8,10 @@ puppeteer.use(StealthPlugin());
 
 const PORT = process.env.PORT || 3100;
 const NAVIGATION_TIMEOUT_MS = Number(process.env.NAVIGATION_TIMEOUT_MS || 120000);
-const SIMULATION_TIMEOUT_MS = Number(process.env.SIMULATION_TIMEOUT_MS || 8000);
+const SIMULATION_SLOWDOWN = Number(process.env.SIMULATION_SLOWDOWN || 1.5);
+const SIMULATION_TIMEOUT_MS = Math.round(
+  Number(process.env.SIMULATION_TIMEOUT_MS || 8000) * SIMULATION_SLOWDOWN
+);
 const WAIT_UNTIL = process.env.WAIT_UNTIL || 'domcontentloaded';
 
 // Глобальная переменная для хранения экземпляра браузера
@@ -86,7 +89,8 @@ async function getBrowser() {
 
 async function simulateHumanBehavior(page) {
   // Имитация поведения реального пользователя
-  const initialDelay = 2000 + Math.floor(Math.random() * 2000);
+  const scale = ms => Math.max(0, Math.round(ms * SIMULATION_SLOWDOWN));
+  const initialDelay = scale(2000 + Math.floor(Math.random() * 2000));
   await new Promise(resolve => setTimeout(resolve, initialDelay));
 
   // Случайные движения мышью (имитация чтения страницы)
@@ -94,16 +98,19 @@ async function simulateHumanBehavior(page) {
     const randomX = 200 + Math.floor(Math.random() * 800);
     const randomY = 200 + Math.floor(Math.random() * 400);
     await page.mouse.move(randomX, randomY, { steps: 10 });
-    await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500));
+    await new Promise(resolve => setTimeout(resolve, scale(300 + Math.random() * 500)));
   }
 
   // Плавная прокрутка страницы (как человек) с ограничением по времени
-  await page.evaluate(async () => {
-    const maxSteps = 40;
-    const maxTimeMs = 5000;
+  const scrollConfig = {
+    maxSteps: 60,
+    maxTimeMs: scale(8000),
+    intervalMs: scale(140),
+    distance: 100,
+  };
+  await page.evaluate(async ({ maxSteps, maxTimeMs, intervalMs, distance }) => {
     const start = Date.now();
     let totalHeight = 0;
-    const distance = 100;
     let steps = 0;
 
     await new Promise(resolve => {
@@ -117,12 +124,12 @@ async function simulateHumanBehavior(page) {
           clearInterval(timer);
           resolve();
         }
-      }, 100);
+      }, intervalMs);
     });
-  });
+  }, scrollConfig);
 
   // Пауза после прокрутки
-  await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+  await new Promise(resolve => setTimeout(resolve, scale(1000 + Math.random() * 1000)));
 
   // Еще одно движение мышью
   const finalX = 300 + Math.floor(Math.random() * 600);
@@ -130,7 +137,7 @@ async function simulateHumanBehavior(page) {
   await page.mouse.move(finalX, finalY, { steps: 15 });
 
   // Финальная задержка
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise(resolve => setTimeout(resolve, scale(500)));
 }
 
 function delay(ms) {
