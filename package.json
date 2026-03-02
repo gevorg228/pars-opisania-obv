@@ -3,8 +3,10 @@
   "private": true,
   "scripts": {
     "start:parser": "npm --prefix parser start",
+    "start:detail": "npm --prefix detail-parser start",
     "start:rasparser": "npm --prefix rasparser start",
-    "start": "concurrently \"npm --prefix parser start\" \"npm --prefix rasparser start\"",
+    "start": "concurrently -n \"PUPPETEER,DETAIL\" -c \"blue,green\" \"npm --prefix parser start\" \"npm --prefix detail-parser start\"",
+    "start:old": "concurrently \"npm --prefix parser start\" \"npm --prefix rasparser start\"",
     "start:all": "concurrently \"docker compose up\" \"npm start\""
   },
   "devDependencies": {

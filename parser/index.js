@@ -1,12 +1,22 @@
-﻿import http from 'http';
+import http from 'http';
 import { URL } from 'url';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Загружаем переменные окружения
+dotenv.config();
 
 // Подключаем плагин stealth для обхода детекции ботов
 puppeteer.use(StealthPlugin());
 
-const PORT = process.env.PORT || 3100;
+const PORT = process.env.PORT || 3300;
 const NAVIGATION_TIMEOUT_MS = Number(process.env.NAVIGATION_TIMEOUT_MS || 120000);
 const SIMULATION_SLOWDOWN = Number(process.env.SIMULATION_SLOWDOWN || 1.5);
 const SIMULATION_TIMEOUT_MS = Math.round(
@@ -14,14 +24,54 @@ const SIMULATION_TIMEOUT_MS = Math.round(
 );
 const WAIT_UNTIL = process.env.WAIT_UNTIL || 'domcontentloaded';
 
+// Массив User-Agent для ротации (разные браузеры и версии)
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15'
+];
+
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function getRandomDelay(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 // Глобальная переменная для хранения экземпляра браузера
 // Это позволяет переиспользовать браузер между запросами и сохранять авторизацию
 let browserInstance = null;
-const MAX_PAGES = Number(process.env.MAX_PAGES || 3);
+const MAX_PAGES = Number(process.env.MAX_PAGES || 5);
 const pagePool = [];
 const busyPages = new Set();
 const waitQueue = [];
 const knownPages = new WeakSet();
+
+/**
+ * Очищает данные браузера (cookies, cache)
+ */
+function clearBrowserData() {
+  const browserDataPath = path.join(__dirname, 'browser-data');
+  if (!fs.existsSync(browserDataPath)) return;
+  
+  try {
+    // Удаляем только cookies и cache, оставляем структуру папок
+    const cookiesPath = path.join(browserDataPath, 'Default', 'Cookies');
+    const cachePath = path.join(browserDataPath, 'Default', 'Cache');
+    
+    if (fs.existsSync(cookiesPath)) fs.rmSync(cookiesPath, { force: true, recursive: true });
+    if (fs.existsSync(cachePath)) fs.rmSync(cachePath, { force: true, recursive: true });
+    
+    console.log('✓ Cookies и cache очищены');
+  } catch (error) {
+    console.warn('! Не удалось очистить browser-data:', error.message);
+  }
+}
 
 /**
  * Функция для получения или создания экземпляра браузера
@@ -33,9 +83,14 @@ async function getBrowser() {
     return browserInstance;
   }
 
+  // Очистка данных браузера если включена
+  if (process.env.CLEAR_BROWSER_DATA === '1') {
+    clearBrowserData();
+  }
+
   // Создаем новый экземпляр браузера с настройками для обхода детекции
   browserInstance = await puppeteer.launch({
-    // ВАЖНО: Не headless режим - выглядит как реальный браузер
+    // Видимый браузер - чтобы видеть что происходит
     headless: false,
     
     // userDataDir - папка для сохранения cookies, localStorage и авторизации
@@ -47,6 +102,8 @@ async function getBrowser() {
     
     // Аргументы Chrome для максимального обхода детекции
     args: [
+      // Прокси (если указан)
+      ...(process.env.PROXY_SERVER ? [`--proxy-server=${process.env.PROXY_SERVER}`] : []),
       '--disable-blink-features=AutomationControlled',
       '--disable-features=IsolateOrigins,site-per-process',
       '--exclude-switches=enable-automation',
@@ -88,17 +145,19 @@ async function getBrowser() {
 }
 
 async function simulateHumanBehavior(page) {
-  // Имитация поведения реального пользователя
+  // Имитация поведения реального пользователя с рандомизацией
   const scale = ms => Math.max(0, Math.round(ms * SIMULATION_SLOWDOWN));
-  const initialDelay = scale(2000 + Math.floor(Math.random() * 2000));
+  const initialDelay = scale(getRandomDelay(1500, 3500)); // Варьируем начальную задержку
   await new Promise(resolve => setTimeout(resolve, initialDelay));
 
-  // Случайные движения мышью (имитация чтения страницы)
-  for (let i = 0; i < 3; i++) {
-    const randomX = 200 + Math.floor(Math.random() * 800);
-    const randomY = 200 + Math.floor(Math.random() * 400);
-    await page.mouse.move(randomX, randomY, { steps: 10 });
-    await new Promise(resolve => setTimeout(resolve, scale(300 + Math.random() * 500)));
+  // Случайное количество движений мыши (2-5)
+  const moveCount = getRandomDelay(2, 5);
+  for (let i = 0; i < moveCount; i++) {
+    const randomX = getRandomDelay(100, 1200);
+    const randomY = getRandomDelay(100, 700);
+    const steps = getRandomDelay(8, 15);
+    await page.mouse.move(randomX, randomY, { steps });
+    await new Promise(resolve => setTimeout(resolve, scale(getRandomDelay(200, 700))));
   }
 
   // Плавная прокрутка страницы (как человек) с ограничением по времени
@@ -144,25 +203,38 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function configurePage(page) {
-  if (page.__codexConfigured) {
+async function configurePage(page, forceReconfigure = false) {
+  if (page.__codexConfigured && !forceReconfigure) {
+    // Но User-Agent меняем при каждом запросе
+    await page.setUserAgent(getRandomUserAgent());
     return;
   }
 
-  // Устанавливаем viewport как у реального пользователя
+  // Рандомный размер окна (имитация разных мониторов)
+  const widths = [1920, 1680, 1440, 1366];
+  const heights = [1080, 1050, 900, 768];
+  const randomWidth = widths[Math.floor(Math.random() * widths.length)];
+  const randomHeight = heights[Math.floor(Math.random() * heights.length)];
+
   await page.setViewport({
-    width: 1920,
-    height: 1080,
+    width: randomWidth,
+    height: randomHeight,
     deviceScaleFactor: 1,
     isMobile: false,
     hasTouch: false,
     isLandscape: true,
   });
 
-  // Устанавливаем реалистичный User-Agent
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
-  );
+  // Рандомный User-Agent
+  await page.setUserAgent(getRandomUserAgent());
+
+  // Аутентификация прокси (если нужна)
+  if (process.env.PROXY_USERNAME && process.env.PROXY_PASSWORD) {
+    await page.authenticate({
+      username: process.env.PROXY_USERNAME,
+      password: process.env.PROXY_PASSWORD
+    });
+  }
 
   // Устанавливаем HTTP заголовки как у реального браузера
   await page.setExtraHTTPHeaders({
@@ -454,6 +526,17 @@ const server = http.createServer(async (req, res) => {
 
     try {
       console.log(`\nBatch парсинг: ${urls.length} URL(ов)`);
+      
+      // Предварительно создаем все нужные страницы
+      const browser = await getBrowser();
+      const neededPages = Math.min(urls.length, MAX_PAGES);
+      while (pagePool.length + busyPages.size < neededPages) {
+        const page = await browser.newPage();
+        knownPages.add(page);
+        await configurePage(page);
+        pagePool.push(page);
+      }
+      
       const settled = await Promise.allSettled(urls.map(url => scrapePage(url)));
       const results = urls.map((url, idx) => {
         const item = settled[idx];
@@ -515,6 +598,14 @@ server.listen(PORT, () => {
   console.log(`📖 Использование: http://localhost:${PORT}?url=https://example.com`);
   console.log(`💾 Данные авторизации сохраняются в папке: browser-data`);
   console.log(`🌐 Браузер остается открытым между запросами для сохранения сессии`);
+  console.log('───────────────────────────────────────────────────────────');
+  console.log('🛡️  АНТИ-БАН ЗАЩИТА:');
+  console.log(`   • Ротация User-Agent: 7 вариантов`);
+  console.log(`   • Рандомные размеры окна и задержки`);
+  console.log(`   • Имитация поведения пользователя`);
+  console.log(`   • MAX_PAGES: ${MAX_PAGES}`);
+  console.log(`   • SIMULATION_SLOWDOWN: ${SIMULATION_SLOWDOWN}x`);
+  console.log(`   • Очистка cookies: ${process.env.CLEAR_BROWSER_DATA === '1' ? 'ВКЛ' : 'ВЫКЛ'}`);
   console.log('═══════════════════════════════════════════════════════════');
 });
 

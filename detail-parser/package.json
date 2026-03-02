@@ -1,7 +1,7 @@
 {
-  "name": "back-parser",
+  "name": "detail-parser",
   "version": "1.0.0",
-  "description": "Fetch latest search_results, parse listing + detail pages, write to Postgres",
+  "description": "Parse ad details from database and update descriptions",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
