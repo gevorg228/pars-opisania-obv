@@ -5,7 +5,9 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { fork } from 'child_process';
 import dotenv from 'dotenv';
+import pg from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +19,32 @@ dotenv.config();
 puppeteer.use(StealthPlugin());
 
 const PORT = process.env.PORT || 3300;
+const DATABASE_URL = process.env.DATABASE_URL;
+
+// --- DB для parse_jobs ---
+let dbPool = null;
+
+async function getDb() {
+  if (!dbPool && DATABASE_URL) {
+    dbPool = new pg.Pool({ connectionString: DATABASE_URL, max: 3 });
+    // Создаём таблицу parse_jobs если не существует
+    await dbPool.query(`
+      CREATE TABLE IF NOT EXISTS parse_jobs (
+        id SERIAL PRIMARY KEY,
+        account_id INT,
+        status VARCHAR(50) DEFAULT 'pending',
+        total_items INT DEFAULT 0,
+        processed_items INT DEFAULT 0,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP
+      )
+    `);
+  }
+  return dbPool;
+}
+
 const NAVIGATION_TIMEOUT_MS = Number(process.env.NAVIGATION_TIMEOUT_MS || 120000);
 const SIMULATION_SLOWDOWN = Number(process.env.SIMULATION_SLOWDOWN || 1.5);
 const SIMULATION_TIMEOUT_MS = Math.round(
@@ -493,6 +521,96 @@ const server = http.createServer(async (req, res) => {
   const targetUrl = parsedUrl.searchParams.get('url');
   const isBatch = parsedUrl.pathname === '/batch';
 
+  // --- POST /parse/start ---
+  if (parsedUrl.pathname === '/parse/start' && req.method === 'POST') {
+    try {
+      const body = await readJsonBody(req);
+      const accountId = body && body.account_id ? Number(body.account_id) : null;
+
+      if (!accountId) {
+        sendJson(res, 400, { error: 'account_id обязателен. Пример: { "account_id": 1 }' });
+        return;
+      }
+
+      const db = await getDb();
+      if (!db) {
+        sendJson(res, 500, { error: 'DATABASE_URL не настроен в .env' });
+        return;
+      }
+
+      // Создаём job
+      const result = await db.query(
+        `INSERT INTO parse_jobs (account_id, status) VALUES ($1, 'pending') RETURNING id`,
+        [accountId]
+      );
+      const jobId = result.rows[0].id;
+
+      console.log(`\n🚀 Запуск парсинга: account_id=${accountId}, job_id=${jobId}`);
+
+      // Запускаем detail-parser как дочерний процесс
+      const detailParserPath = path.resolve(__dirname, '..', 'detail-parser', 'src', 'index.js');
+      const child = fork(detailParserPath, [
+        `--account-id=${accountId}`,
+        `--job-id=${jobId}`
+      ], {
+        cwd: path.resolve(__dirname, '..', 'detail-parser'),
+        silent: false,
+      });
+
+      child.on('exit', (code) => {
+        console.log(`✓ Detail parser завершился (job_id=${jobId}, exit code=${code})`);
+      });
+
+      child.on('error', (err) => {
+        console.error(`✗ Ошибка запуска detail parser: ${err.message}`);
+      });
+
+      // Не ждём завершения — сразу отвечаем
+      sendJson(res, 200, { job_id: jobId, status: 'started' });
+    } catch (error) {
+      console.error('Ошибка /parse/start:', error.message);
+      sendJson(res, 500, { error: error.message });
+    }
+    return;
+  }
+
+  // --- GET /parse/status/:jobId ---
+  const statusMatch = parsedUrl.pathname.match(/^\/parse\/status\/(\d+)$/);
+  if (statusMatch && req.method === 'GET') {
+    try {
+      const db = await getDb();
+      if (!db) {
+        sendJson(res, 500, { error: 'DATABASE_URL не настроен в .env' });
+        return;
+      }
+
+      const jobId = Number(statusMatch[1]);
+      const result = await db.query(`SELECT * FROM parse_jobs WHERE id = $1`, [jobId]);
+      const job = result.rows[0];
+
+      if (!job) {
+        sendJson(res, 404, { error: 'Job не найден' });
+        return;
+      }
+
+      sendJson(res, 200, {
+        job_id: job.id,
+        account_id: job.account_id,
+        status: job.status,
+        total_items: job.total_items,
+        processed_items: job.processed_items,
+        error_message: job.error_message,
+        created_at: job.created_at,
+        started_at: job.started_at,
+        completed_at: job.completed_at,
+      });
+    } catch (error) {
+      console.error('Ошибка /parse/status:', error.message);
+      sendJson(res, 500, { error: error.message });
+    }
+    return;
+  }
+
   if (isBatch && req.method !== 'POST') {
     sendJson(res, 405, { error: 'Метод не разрешен. Используйте POST.' });
     return;
@@ -606,7 +724,21 @@ server.listen(PORT, () => {
   console.log(`   • MAX_PAGES: ${MAX_PAGES}`);
   console.log(`   • SIMULATION_SLOWDOWN: ${SIMULATION_SLOWDOWN}x`);
   console.log(`   • Очистка cookies: ${process.env.CLEAR_BROWSER_DATA === '1' ? 'ВКЛ' : 'ВЫКЛ'}`);
+  console.log('───────────────────────────────────────────────────────────');
+  console.log('📡 API эндпоинты:');
+  console.log(`   • POST /parse/start     — запустить парсинг { account_id: N }`);
+  console.log(`   • GET  /parse/status/:id — статус парсинга`);
+  console.log(`   • База данных: ${DATABASE_URL ? 'подключена' : 'НЕ НАСТРОЕНА (parse_jobs не будут работать)'}`);
   console.log('═══════════════════════════════════════════════════════════');
+
+  // Инициализируем БД при старте
+  if (DATABASE_URL) {
+    getDb().then(() => {
+      console.log('✓ Таблица parse_jobs готова');
+    }).catch(err => {
+      console.error('✗ Ошибка подключения к БД:', err.message);
+    });
+  }
 });
 
 /**
@@ -614,12 +746,17 @@ server.listen(PORT, () => {
  */
 async function gracefulShutdown(signal) {
   console.log(`\n\n${signal} получен. Закрытие браузера...`);
-  
+
   if (browserInstance && browserInstance.isConnected()) {
     await browserInstance.close();
     console.log('✓ Браузер закрыт');
   }
-  
+
+  if (dbPool) {
+    await dbPool.end();
+    console.log('✓ Пул БД закрыт');
+  }
+
   server.close(() => {
     console.log('✓ Сервер остановлен');
     process.exit(0);
