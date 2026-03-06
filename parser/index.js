@@ -117,10 +117,10 @@ async function getBrowser() {
   }
 
   // Создаем новый экземпляр браузера с настройками для обхода детекции
-  browserInstance = await puppeteer.launch({
-    // Видимый браузер - чтобы видеть что происходит
-    headless: false,
-    
+  const launchOptions = {
+    // headless: 'new' для Docker, false для локальной разработки
+    headless: process.env.HEADLESS === '1' ? 'new' : false,
+
     // userDataDir - папка для сохранения cookies, localStorage и авторизации
     // Благодаря этому авторизация сохраняется между запусками
     userDataDir: './browser-data',
@@ -167,7 +167,14 @@ async function getBrowser() {
       '--metrics-recording-only',
       '--mute-audio',
     ],
-  });
+  };
+
+  // В Docker используем системный Chromium
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
+  browserInstance = await puppeteer.launch(launchOptions);
 
   return browserInstance;
 }

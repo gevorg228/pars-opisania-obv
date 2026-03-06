@@ -1,0 +1,61 @@
+services:
+  parser:
+    build: ./parser
+    container_name: parser-puppeteer
+    restart: unless-stopped
+    ports:
+      - "3300:3300"
+    environment:
+      PORT: 3300
+      HEADLESS: 1
+      DATABASE_URL: postgres://app:app_password@postgres:5432/avito_db
+      MAX_PAGES: 5
+      SIMULATION_SLOWDOWN: 2.0
+      SIMULATION_TIMEOUT_MS: 12000
+      NAVIGATION_TIMEOUT_MS: 120000
+      CLEAR_BROWSER_DATA: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  detail-parser:
+    build: ./detail-parser
+    container_name: parser-detail
+    restart: "no"
+    environment:
+      DATABASE_URL: postgres://app:app_password@postgres:5432/avito_db
+      PARSER_BASE_URL: http://parser:3300
+      BATCH_SIZE: 5
+      BATCH_DELAY_MS: 4000
+    depends_on:
+      - parser
+
+  postgres:
+    image: postgres:16
+    container_name: parser-postgres
+    restart: unless-stopped
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: avito_db
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d avito_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer:4
+    container_name: parser-adminer
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:

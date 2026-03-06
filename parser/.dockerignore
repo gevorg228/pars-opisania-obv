@@ -1,0 +1,5 @@
+node_modules
+browser-data
+.env
+.env.*
+*.log
